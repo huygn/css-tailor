@@ -8,14 +8,15 @@ const htmlLookupRegex = /(?:(\bclass|className\b)\s*=\s*(?:"([^"]*)"|'([^']*)'|(
 
 // Configuration variables
 let config = {};
-let lazyHtml = '';      // `HTML` string when running in lazy generation
-let lazyPaths = [];     // `paths` when running in lazy generation
+let lazyHtml = ''; // `HTML` string when running in lazy generation
+let lazyPaths = []; // `paths` when running in lazy generation
 const defaults = {
   newLineChar: '\n',
   tabSpacing: 4,
   outputPath: '',
   minifyOutput: false,
-  setImportant: false
+  setImportant: false,
+  classPrefix: '',
 };
 
 /**
@@ -25,7 +26,6 @@ const defaults = {
  * @type {Object}
  */
 const propertyMapping = {
-
   /**
    * Regex to check if some property value is tailorable for any of the properties below.
    * @note The regex only matches the numerical valued properties. It will be modified later on
@@ -33,58 +33,15 @@ const propertyMapping = {
    *
    * @type {RegExp}
    */
-  regex: /(^[a-z]{1,23})([0-9]{1,4})(\w*)/,
+  // regex: /(^[a-z]{1,23})-(.{3}|.{6})$/,
+  getRegex: config => new RegExp(`(^${config.classPrefix}[a-z]{1,23})-(.{3}|.{6})$`),
 
   /**
    * Aliases mapping to their relevant CSS properties
    */
-  t: 'top',
-  b: 'bottom',
-  l: 'left',
-  r: 'right',
-
-  w: 'width',
-  h: 'height',
-
-  p: 'padding',
-  m: 'margin',
-
-  br: 'border-radius',
-  fs: 'font-size',
-  fw: 'font-weight',
-  lh: 'line-height',
-
-  mt: 'margin-top',
-  mb: 'margin-bottom',
-  ml: 'margin-left',
-  mr: 'margin-right',
-
-  pt: 'padding-top',
-  pb: 'padding-bottom',
-  pl: 'padding-left',
-  pr: 'padding-right'
-};
-
-/**
- * Defines the mapping for characters to their relevant units
- *
- * @type {Object}
- */
-const unitMapping = {
-  default: 'px',      // If no mapping found or empty unit given then use this
-  px: 'px',
-  pt: 'pt',
-  em: 'em',
-  p: '%',
-  vh: 'vh',
-  vw: 'vw',
-  vmin: 'vmin',
-  ex: 'ex',
-  cm: 'cm',
-  in: 'in',
-  mm: 'mm',
-  pc: 'pc',
-  n: ''       // None
+  color: 'color',
+  bgcolor: 'background-color',
+  bdcolor: 'border-color',
 };
 
 /**
@@ -140,7 +97,7 @@ const getUnit = actualUnit => {
   actualUnit = actualUnit || '';
   actualUnit = actualUnit.trim();
 
-  return (unitMapping[actualUnit] === undefined) ? unitMapping.default : unitMapping[actualUnit];
+  return unitMapping[actualUnit] === undefined ? unitMapping.default : unitMapping[actualUnit];
 };
 
 /**
@@ -150,15 +107,16 @@ const getUnit = actualUnit => {
  * @returns {null|Object}
  */
 const getMappedCss = property => {
+  const pieces = property.match(propertyMapping.getRegex(config));
+  const cssProperty = pieces && propertyMapping[(pieces[1] || '').replace(config.classPrefix, '')];
 
-  const pieces = property.match(propertyMapping.regex);
-  const cssProperty = pieces && propertyMapping[pieces[1]];
-
-  return cssProperty && {
-    selector: '.' + property,
-    property: cssProperty,
-    value: pieces[2] + getUnit(pieces[3] || unitMapping.default) + (config.setImportant ? ' !important' : '')
-  };
+  return (
+    cssProperty && {
+      selector: '.' + property,
+      property: cssProperty,
+      value: '#' + pieces[2] + (config.setImportant ? ' !important' : ''),
+    }
+  );
 };
 
 /**
@@ -172,17 +130,17 @@ const generateCss = extractedValues => {
   const tailoredCss = {
     minified: '',
     formatted: '',
-    object: {}
+    object: {},
   };
 
   // For each of the extracted attribute values, parse each value
-  extractedValues.forEach(function (attrValue) {
+  extractedValues.forEach(function(attrValue) {
     attrValue = attrValue.replace(/\s+/g, ' ');
     const valueItems = attrValue.split(' ');
 
     // Since each value can have multiple properties (e.g. `p10 mt40`)
     // Split each value and iterate to generate any possible CSS
-    valueItems.forEach(function (valueItem) {
+    valueItems.forEach(function(valueItem) {
       const css = getMappedCss(valueItem);
       if (!css) {
         return;
@@ -190,17 +148,27 @@ const generateCss = extractedValues => {
 
       // Assemble CSS in the form of minified content, formatted content and object
       tailoredCss['minified'] += css.selector + '{' + css.property + ':' + css.value + ';}';
-      tailoredCss['formatted'] += css.selector + ' {' + config.newLineChar +
-        tabSpacing + css.property + ': ' + css.value + ';' + config.newLineChar +
-        '}' + config.newLineChar + config.newLineChar;
+      tailoredCss['formatted'] +=
+        css.selector +
+        ' {' +
+        config.newLineChar +
+        tabSpacing +
+        css.property +
+        ': ' +
+        css.value +
+        ';' +
+        config.newLineChar +
+        '}' +
+        config.newLineChar +
+        config.newLineChar;
 
       tailoredCss['object'][css.selector] = {
         properties: [
           {
             property: css.property,
-            value: css.value
-          }
-        ]
+            value: css.value,
+          },
+        ],
       };
     });
   });
@@ -233,14 +201,14 @@ const readHtmlFile = filePath => {
  */
 const pathToHtml = location => {
   if (!_.isString(location)) {
-    throw 'Error! pathToHtml: Location must be string ' + (typeof location) + ' given';
+    throw 'Error! pathToHtml: Location must be string ' + typeof location + ' given';
   }
 
   let htmlContent = '';
   const lstat = fs.lstatSync(location);
 
   if (lstat.isDirectory()) {
-    getFiles(location, function (filePath) {
+    getFiles(location, function(filePath) {
       htmlContent += readHtmlFile(filePath);
     });
   } else if (lstat.isFile()) {
@@ -308,7 +276,7 @@ module.exports = {
    *
    * @param htmlContent
    */
-  pushHtml: function (htmlContent) {
+  pushHtml: function(htmlContent) {
     lazyHtml += htmlContent;
   },
 
@@ -317,7 +285,7 @@ module.exports = {
    *
    * @param path
    */
-  pushPath: function (path) {
+  pushPath: function(path) {
     lazyPaths.push(path);
   },
 
@@ -326,7 +294,7 @@ module.exports = {
    *
    * @returns {{}|{minified: '', formatted: '', object: {}}}
    */
-  generateLazy: function (options) {
+  generateLazy: function(options) {
     if (_.isEmpty(lazyHtml) && _.isEmpty(lazyPaths)) {
       throw 'Error! No HTML or path given for lazy generation';
     }
@@ -352,7 +320,7 @@ module.exports = {
    * @param options
    * @returns {{}|{minified: '', formatted: '', object: {}}}
    */
-  generateCss: function (htmlContent, options) {
+  generateCss: function(htmlContent, options) {
     updateOptions(options);
 
     const extractedValues = extractAttributeValues(htmlLookupRegex, htmlContent);
@@ -360,7 +328,7 @@ module.exports = {
       return {
         minified: '',
         formatted: '',
-        object: {}
+        object: {},
       };
     }
 
@@ -377,11 +345,11 @@ module.exports = {
    * @param options
    * @returns {*|string}
    */
-  generatePathCss: function (paths, options) {
+  generatePathCss: function(paths, options) {
     if (_.isEmpty(paths)) {
       throw 'Error! path is required';
     }
 
     return this.generateCss(pathsToHtml(paths), options);
-  }
+  },
 };
